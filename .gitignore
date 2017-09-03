@@ -34,3 +34,6 @@
 # directories
 Debug/*
 .vs/*
+*.filters
+*.vcxproj
+*.sln

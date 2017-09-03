@@ -1,20 +1,14 @@
 // rscpp.cpp: Definiuje punkt wejścia dla aplikacji konsolowej.
 //
 
-#include "stdafx.h"
-#include <thread>
-#include <iostream>
-
+#include "ui\UserInterface.h"
 using namespace std;
 
-void aaa() {
-	cout << "asdada\n";
-}
-int main()
-{
-	thread t(aaa);
-	t.join();
-	system("pause");
-    return 0;
+int main() {
+	UserInterface *ui = new UserInterface();
+	 ui->init();
+	 delete ui;
+
+	return 0;
 }
 
