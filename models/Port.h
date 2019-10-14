@@ -3,6 +3,7 @@
 #include "../lib/FileNotFoundException.h"
 #include "../lib/PortNotOpenException.h"
 #include <string>
+#include <chrono>
 
 using namespace std;
 
@@ -15,14 +16,16 @@ class Port
 	COMSTAT comstat;
 	DWORD eventMask;
 	bool opened;
+	bool isReading;
+	bool waiting2Write;
+	static const char endOfMessage = '\n';
 public:
 	Port();
 	bool open();
 	bool open(string portName);
 	bool close();
-	void read(char *data, size_t &bytesToRead);
-	void rawRead(char *data, size_t &bytesToRead);
-	size_t write(char *data, size_t bytesToWrite);
+	void read(char *& data, size_t & bytesToRead, chrono::time_point<chrono::system_clock>*& start, chrono::time_point<chrono::system_clock>*& end);
+	size_t write(char * data, size_t bytesToWrite, chrono::time_point<chrono::system_clock>*& start, chrono::time_point<chrono::system_clock>*& end);
 	~Port();
 	string getPortName() const;
 	void setPortName(const string &value);
@@ -32,4 +35,5 @@ public:
 	void setRTS();
 	void clearRTS();
 	bool isOpen();
+	bool canRead();
 };

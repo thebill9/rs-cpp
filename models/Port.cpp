@@ -1,5 +1,6 @@
 #include "Port.h"
-
+#include <iostream>
+#include <vector>
 string Port::getPortName() const
 {
 	return portName;
@@ -40,9 +41,15 @@ bool Port::isOpen()
 	return this->opened;
 }
 
+bool Port::canRead()
+{
+	return !this->waiting2Write && !this->isReading;
+}
+
 Port::Port()
 {
-
+	this->isReading = false;
+	this->waiting2Write = false;
 }
 
 bool Port::open()
@@ -53,7 +60,7 @@ bool Port::open()
 	if (portId != INVALID_HANDLE_VALUE)
 	{
 		GetCommState(portId, &dcb);
-		dcb.BaudRate = CBR_1200;
+		dcb.BaudRate = CBR_128000;
 		dcb.DCBlength = sizeof(dcb);
 		dcb.fDtrControl = DTR_CONTROL_ENABLE;
 		dcb.fRtsControl = RTS_CONTROL_DISABLE;
@@ -74,7 +81,7 @@ bool Port::open()
 		GetCommTimeouts(portId, &commTimeouts);
 		commTimeouts.ReadTotalTimeoutConstant = 1;
 		commTimeouts.ReadIntervalTimeout = 1;
-		commTimeouts.ReadTotalTimeoutMultiplier = 2000;
+		commTimeouts.ReadTotalTimeoutMultiplier = 200;
 		SetCommTimeouts(portId, &commTimeouts);
 
 		this->opened = true;
@@ -82,7 +89,7 @@ bool Port::open()
 	}
 	else
 		this->opened = false;
-		return false;
+	return false;
 
 }
 
@@ -100,50 +107,94 @@ bool Port::close()
 	return CloseHandle(portId) != 0;
 }
 
-void Port::read(char *data, size_t &bytesToRead)
+void Port::read(char *&data, size_t &bytesToRead, chrono::time_point<chrono::system_clock> *&start, chrono::time_point<chrono::system_clock> *&end)
 {
 	if (portId == INVALID_HANDLE_VALUE) {
 		throw new PortNotOpenException();
 	}
 	this->clearErrors();
 
+	//cout << "wait 4 comm\n";
+	//WaitCommEvent(portId, &eventMask, nullptr);
+	char buff = '\0';
+	DWORD bytesRead;
+
+	// get header
+	string header = "";
+	start = new chrono::time_point<chrono::system_clock>();
+	end = new chrono::time_point<chrono::system_clock>();
+	while (true) {
+		ReadFile(portId, &buff, 1, &bytesRead, NULL);
+		if (buff) {
+			if (!this->isReading) {
+			}
+			this->isReading = true;
+			header += buff;
+		}
+		if (buff == ';') {
+			break;
+		}
+		if (!this->isReading && this->waiting2Write) {
+			return;
+		}
+	}
+
+	size_t beginH = header.find(":");
+	size_t endH = header.find(";");
+	size_t dataSize = (size_t)stoi(header.substr(beginH + 1, endH - beginH));
+
 	size_t totalRead = 0;
-	data = new char[comstat.cbInQue];
-	while (comstat.cbInQue > 0) {
+	data = new char[dataSize];
+	bytesToRead = dataSize;
+	*start = chrono::system_clock::now();
+	while (dataSize > 0) {
 		char *part = &data[totalRead];
-		DWORD bytesRead;
-		ReadFile(portId, part, comstat.cbInQue, &bytesRead, 0);
+		ReadFile(portId, part, dataSize, &bytesRead, 0);
 		totalRead += (size_t)bytesRead;
+		dataSize -= (size_t)bytesRead;
 	}
-	bytesToRead = totalRead;
+	*end = chrono::system_clock::now();
+	this->isReading = false;
+	
 }
 
-void Port::rawRead(char *data, size_t &bytesToRead)
-{
-	if (portId == INVALID_HANDLE_VALUE) {
-		throw new PortNotOpenException;
-	}
-	this->clearErrors();
-	DWORD bytesRead = 0;
-	ReadFile(portId, data, bytesToRead, &bytesRead, 0);
-	bytesToRead = (size_t)bytesRead;
-}
-
-size_t Port::write(char *data, size_t bytesToWrite)
+size_t Port::write(char *data, size_t bytesToWrite, chrono::time_point<chrono::system_clock> *&start, chrono::time_point<chrono::system_clock> *&end)
 {
 	if (portId == INVALID_HANDLE_VALUE) {
 		throw new PortNotOpenException;
 	}
 
+	start = new chrono::time_point<chrono::system_clock>();
+	end = new chrono::time_point<chrono::system_clock>();
+
+	this->waiting2Write = true;
 	size_t totalWritten = 0;
 	DWORD bytesWritten;
-	while (totalWritten != bytesToWrite) {
-		char *p = &data[totalWritten];
-		size_t toWrite = bytesToWrite - totalWritten;
-		WriteFile(portId, p, toWrite, &bytesWritten, 0);
-		totalWritten += (size_t)bytesWritten;
-		WaitCommEvent(portId, &eventMask, nullptr);
+	// sending header
+	string header = "read:" + to_string(bytesToWrite) + ";";
+	char *cheader = new char[header.size()];
+	strcpy(cheader, header.c_str());
+	size_t writtenHeader = 0;
+	DWORD headerToWrite = header.size();
+	while (headerToWrite > 0) {
+		DWORD headerWritten;
+		WriteFile(portId, &cheader[writtenHeader], headerToWrite, &headerWritten, NULL);
+		headerToWrite -= headerWritten;
 	}
+
+	*start = chrono::system_clock::now();
+	while (totalWritten != bytesToWrite) {
+		DWORD toWrite = bytesToWrite - totalWritten;
+		DWORD written;
+		WriteFile(portId, &data[totalWritten], toWrite, &written, NULL);
+		totalWritten += (size_t)written;
+	}
+
+	WriteFile(portId, &endOfMessage, 1, &bytesWritten, NULL);
+	WriteFile(portId, &endOfMessage, 1, &bytesWritten, NULL);
+
+	*end = chrono::system_clock::now();
+	this->waiting2Write = false;
 	return totalWritten;
 }
 

@@ -1,63 +1,56 @@
 #include "ConnectionManager.h"
 
-size_t ConnectionManager::sendFileNmae(string fileName)
-{
-	port->setRTS();
-	string message = "file:" + fileName + "\n\r\n\rEOF";
-	char *data = new char[message.size()];
-	strcpy(data, message.c_str());
-	size_t bytesWritten = port->write(data, message.size());
-	port->clearRTS();
-	try {
-	delete data;
 
-	}
-	catch (exception e) {
-		cout << e.what() << endl;
-	}
+using namespace std;
 
-	return bytesWritten;
-}
 
-size_t ConnectionManager::sendData(char *data, size_t size)
+size_t ConnectionManager::sendData(char *data, size_t size, chrono::time_point<chrono::system_clock> *&start, chrono::time_point<chrono::system_clock> *&end)
 {
 	if (!data) {
 		throw new NullPointerException;
 	}
-	port->setRTS();
-	char dataPrefix[] = "data:";
-	this->port->write(dataPrefix, sizeof(dataPrefix));
-	size_t bytesWritten = this->port->write(data, size);
+	size_t bytesWritten = this->port->write(data, size, start, end);
 	port->clearRTS();
 	return bytesWritten;
 }
 
+void ConnectionManager::parse2send(File *file, char *&output, size_t & size)
+{
+	if (file == nullptr || file->getData() == nullptr) {
+		throw new NullPointerException;
+	}
+	string message = "file:" + file->getFileName();
+	message += "\tdata:";
+	size = message.size() + file->getSize();
+	output = new char[size];
+	strcpy(output, message.c_str());
+	strcat(output, file->getData());
+}
+
 File *ConnectionManager::parseData(char *data, size_t size)
 {
-	cout << "parsing resp\n";
 	char namePrefix[] = "file:";
-	char namePostFix[] = "\n\r\n\rEOF";
-	char dataPrefix[] = "\n\r\n\rEOFdata:";
-	size_t sizeOfData = size - sizeof(namePrefix) - sizeof(dataPrefix);
+	char dataPrefix[] = "\tdata:";
 	char *namePointer;
 	char *dataPointer;
-	char *fileData = new char[size];
 	char *endNamePointer;
-	namePointer = strstr(data, namePrefix);
-	endNamePointer = strstr(data, namePostFix);
-	dataPointer = strstr(data, dataPrefix);
+	namePointer = strstr(data, namePrefix) + sizeof(namePrefix) - 1;
+	endNamePointer = strstr(data, dataPrefix);
+	dataPointer = strstr(data, dataPrefix) -1;
 	string fileName = "";
 	if (namePointer && endNamePointer) {
 		while (namePointer != endNamePointer) {
-			fileName.append(namePointer);
+			fileName += namePointer[0];
 			++namePointer;
 		}
-		cout << "obtainted filename: " << fileName << endl;
-	} if (dataPointer) {
+	}
+	size_t sizeOfData = size + 2 - sizeof(namePrefix) - sizeof(dataPrefix) - fileName.size();
+	char *fileData = new char[sizeOfData];
+	if (dataPointer) {
 		memcpy(fileData, dataPointer + sizeof(dataPrefix), sizeOfData);
 	}
-	File *file(new File(fileData, fileName, sizeOfData));
-	return file;
+	 File *file(new File(fileData, fileName, sizeOfData));
+	 return file;
 }
 
 ConnectionManager::ConnectionManager()
@@ -79,35 +72,37 @@ bool ConnectionManager::init(string portName)
 	return port->open(portName);
 }
 
-size_t ConnectionManager::sendFile(File *file)
+size_t ConnectionManager::sendFile(File *file, chrono::time_point<chrono::system_clock> *&start, chrono::time_point<chrono::system_clock> *&end)
 {
 	if (!file) {
 		throw new NullPointerException();
 	}
 
-	this->sendFileNmae(file->getFileName());
-	size_t result = this->sendData(file->getData(), file->getSize());
-	delete file;
-	return result;
-}
-
-File *ConnectionManager::receiveFile()
-{
-	size_t fnSize = 0;
-	char *filename = new char[fnSize];
-	this->port->rawRead(filename, fnSize);
-	cout << "received f " << filename << ", size: " << fnSize << endl;
 	char *data = nullptr;
 	size_t size = 0;
-	while (this->port->getCbInQue() == 0) {
-		//        cout << "nic";
+	parse2send(file, data, size);
+	size_t sentData = this->sendData(data, size, start, end);
+	delete file;
+	return sentData;
+}
+
+File *ConnectionManager::receiveFile(chrono::time_point<chrono::system_clock> *&start, chrono::time_point<chrono::system_clock> *&end)
+{
+	size_t fnSize = 0;
+	char *data = nullptr;
+	size_t size = 0;
+	port->read(data, size, start, end);
+	
+	if (data == nullptr) {
+		return nullptr;
 	}
-	cout << "gotSomething " << this->port->getCbInQue() << endl;
-	port->read(data, size);
-	return nullptr;
-	//    return this->parseData(data, size);
-	//    File *file( new File(data, filename, size) );
-	//    return file;
+	File *file = parseData(data, size);
+	return file;
+}
+
+bool ConnectionManager::canRead()
+{
+	return this->isPortOpen() && this->port->canRead();
 }
 
 ConnectionManager::~ConnectionManager()
@@ -118,7 +113,7 @@ ConnectionManager::~ConnectionManager()
 
 	}
 	catch (exception e) {
-		cout << "exception: " << e.what() << endl;
+		cout << "Blad podczas zamykania polaczenia\n";
 	}
 
 }

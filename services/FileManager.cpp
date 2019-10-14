@@ -18,10 +18,7 @@ string FileManager::getValidFileName(string fileName)
 			+ "(" + to_string(i) + ")"
 			+ fileName.substr(indexOfDot);
 		++i;
-		cout << "inProgress: " + fileName.substr(0, indexOfDot)
-			+ ", to: " + fileName.substr(indexOfDot) << endl;
 	}
-	cout << newName;
 	return newName;
 }
 
@@ -29,6 +26,10 @@ string FileManager::extractFileName(string filePath)
 {
 	size_t position = filePath.find_last_of('/');
 	if (position == string::npos) {
+		size_t position = filePath.find_last_of((char)92);
+	}
+	if (position == string::npos) {
+		cout << "Bledna sciezka do pliku\n";
 		return filePath;
 	}
 	return filePath.substr(position + 1);
@@ -47,10 +48,7 @@ File *FileManager::extractData(ifstream &inFile, string fileName)
 	char *buffer = new char[size];
 	inFile.read(buffer, size);
 
-	cout << "loaded data: " << size << endl;
-
-	File *uPtr(new File(buffer, fileName, size));
-	return  uPtr;
+	return new File(buffer, fileName, size);
 }
 
 FileManager::FileManager()
@@ -67,7 +65,6 @@ File *FileManager::load(string filePath)
 	string fileName = extractFileName(filePath);
 	File *uPtr = extractData(inFile, fileName);
 	inFile.close();
-
 	return uPtr;
 
 }
@@ -84,10 +81,11 @@ File *FileManager::load(string filePath, string fileName)
 
 void FileManager::save(File *file)
 {
-	ofstream outFile(file->getFileName().c_str(), ofstream::binary);
+	string filename = getValidFileName(file->getFileName());
+	ofstream outFile(filename.c_str(), ofstream::binary);
+
 	outFile.write(file->getData(), file->getSize());
 	outFile.close();
-	delete file;
 }
 
 bool FileManager::openOutput(string filePath)
